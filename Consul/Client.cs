@@ -861,9 +861,34 @@ namespace Consul
 
     public abstract class ConsulRequest
     {
+		/// <summary>
+		/// Request parameter values
+		/// </summary>
+		protected internal struct RequestParameterValue
+		{
+			/// <summary>
+			/// Request parameter values
+			/// </summary>
+			public readonly IReadOnlyCollection<string> Values;
+
+			public RequestParameterValue(params string[] values)
+			{
+				Values = values;
+			}
+
+			/// <summary>
+			/// Convert value string to expected <see cref="RequestParameterValue"/> parameter
+			/// </summary>
+			/// <param name="value">request single value parameter</param>
+			public static implicit operator RequestParameterValue(string value)
+			{
+				return new RequestParameterValue(value);
+			}
+		}
+
         internal ConsulClient Client { get; set; }
         internal HttpMethod Method { get; set; }
-        internal Dictionary<string, string> Params { get; set; }
+        internal Dictionary<string, RequestParameterValue> Params { get; set; }
         internal Stream ResponseStream { get; set; }
         internal string Endpoint { get; set; }
 
@@ -875,7 +900,7 @@ namespace Consul
             Method = method;
             Endpoint = url;
 
-            Params = new Dictionary<string, string>();
+            Params = new Dictionary<string, RequestParameterValue>();
             if (!string.IsNullOrEmpty(client.Config.Datacenter))
             {
                 Params["dc"] = client.Config.Datacenter;
@@ -889,7 +914,7 @@ namespace Consul
         protected abstract void ApplyOptions(ConsulClientConfiguration clientConfig);
         protected abstract void ApplyHeaders(HttpRequestMessage message, ConsulClientConfiguration clientConfig);
 
-        protected Uri BuildConsulUri(string url, Dictionary<string, string> p)
+        protected Uri BuildConsulUri(string url, Dictionary<string, RequestParameterValue> p)
         {
             var builder = new UriBuilder(Client.Config.Address);
             builder.Path = url;
@@ -897,14 +922,25 @@ namespace Consul
             ApplyOptions(Client.Config);
 
             var queryParams = new List<string>(Params.Count / 2);
+			bool added;
             foreach (var queryParam in Params)
-            {
-                if (!string.IsNullOrEmpty(queryParam.Value))
-                {
-                    queryParams.Add(string.Format("{0}={1}", Uri.EscapeDataString(queryParam.Key),
-                        Uri.EscapeDataString(queryParam.Value)));
-                }
-                else
+			{
+				added = false;
+
+                if (queryParam.Value.Values?.Any() == true)
+				{
+					foreach (string queryValue in queryParam.Value.Values)
+					{
+						if (!string.IsNullOrEmpty(queryValue))
+						{
+							queryParams.Add(string.Format("{0}={1}", Uri.EscapeDataString(queryParam.Key),
+														  Uri.EscapeDataString(queryValue)));
+							added = true;
+						}
+					}
+				}
+                
+				if (!added)
                 {
                     queryParams.Add(string.Format("{0}", Uri.EscapeDataString(queryParam.Key)));
                 }

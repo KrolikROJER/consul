@@ -19,6 +19,7 @@
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -252,7 +253,7 @@ namespace Consul
         /// <returns>A query result containing the service members matching the provided service ID, or a query result with a null response if no service members matched the filters provided</returns>
         public Task<QueryResult<ServiceEntry[]>> Service(string service, CancellationToken ct = default(CancellationToken))
         {
-            return Service(service, string.Empty, false, QueryOptions.Default, ct);
+            return ServiceInternal(service, false, QueryOptions.Default, ct);
         }
 
         /// <summary>
@@ -263,7 +264,7 @@ namespace Consul
         /// <returns>A query result containing the service members matching the provided service ID and tag, or a query result with a null response if no service members matched the filters provided</returns>
         public Task<QueryResult<ServiceEntry[]>> Service(string service, string tag, CancellationToken ct = default(CancellationToken))
         {
-            return Service(service, tag, false, QueryOptions.Default, ct);
+            return ServiceInternal(service, false, QueryOptions.Default, ct, tag);
         }
 
         /// <summary>
@@ -275,7 +276,7 @@ namespace Consul
         /// <returns>A query result containing the service members matching the provided service ID, tag, and health status, or a query result with a null response if no service members matched the filters provided</returns>
         public Task<QueryResult<ServiceEntry[]>> Service(string service, string tag, bool passingOnly, CancellationToken ct = default(CancellationToken))
         {
-            return Service(service, tag, passingOnly, QueryOptions.Default, ct);
+			return ServiceInternal(service, passingOnly, QueryOptions.Default, ct, tag);
         }
 
         /// <summary>
@@ -288,11 +289,52 @@ namespace Consul
         /// <param name="ct">Cancellation token for long poll request. If set, OperationCanceledException will be thrown if the request is cancelled before completing</param>
         /// <returns>A query result containing the service members matching the provided service ID, tag, and health status, or a query result with a null response if no service members matched the filters provided</returns>
         public Task<QueryResult<ServiceEntry[]>> Service(string service, string tag, bool passingOnly, QueryOptions q, CancellationToken ct = default(CancellationToken))
-        {
+		{
+			return ServiceInternal(service, passingOnly, q, ct, tag);
+		}
+
+		#region Implementation of IHealthEndpoint
+
+		/// <inheritdoc />
+		public Task<QueryResult<ServiceEntry[]>> Service(string service, string[] tag, CancellationToken ct = default(CancellationToken))
+		{
+			return ServiceInternal(service, false, QueryOptions.Default, ct, tag);
+		}
+
+		/// <inheritdoc />
+		public Task<QueryResult<ServiceEntry[]>> Service(string service, string[] tag, bool passingOnly, CancellationToken ct = default(CancellationToken))
+		{
+			return ServiceInternal(service, passingOnly, QueryOptions.Default, ct, tag);
+		}
+
+		/// <inheritdoc />
+		public Task<QueryResult<ServiceEntry[]>> Service(string service, string[] tag, bool passingOnly, QueryOptions q, CancellationToken ct = default(CancellationToken))
+		{
+			return ServiceInternal(service, passingOnly, q, ct, tag);
+		}
+
+		#endregion
+
+		/// <summary>
+		/// Service is used to query health information along with service info for a given service. It can optionally do server-side filtering on a tag or nodes with passing health checks only.
+		/// </summary>
+		/// <param name="service">The service ID</param>
+		/// <param name="tag">The service member tag</param>
+		/// <param name="passingOnly">Only return if the health check is in the Passing state</param>
+		/// <param name="q">Customized query options</param>
+		/// <param name="ct">Cancellation token for long poll request. If set, OperationCanceledException will be thrown if the request is cancelled before completing</param>
+		/// <returns>A query result containing the service members matching the provided service ID, tag, and health status, or a query result with a null response if no service members matched the filters provided</returns>
+		private Task<QueryResult<ServiceEntry[]>> ServiceInternal(string service, bool passingOnly, QueryOptions q, CancellationToken ct = default(CancellationToken),params string[] tag)
+		{
             var req = _client.Get<ServiceEntry[]>(string.Format("/v1/health/service/{0}", service), q);
-            if (!string.IsNullOrEmpty(tag))
-            {
-                req.Params["tag"] = tag;
+            if (tag?.Any() == true)
+			{
+				tag = tag.Where(t => !string.IsNullOrEmpty(t)).ToArray();
+
+				if (tag.Length > 0)
+				{
+					req.Params["tag"] = new ConsulRequest.RequestParameterValue(tag);
+				}
             }
             if (passingOnly)
             {
